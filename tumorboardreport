@@ -1,0 +1,83 @@
+library(RCurl)
+library(flextable)
+library(dplyr)
+
+uri <- "https://redcap-surveys.moffitt123.org/api/"
+token      <- "JBDWUD7836HFDVQO3"  
+
+### Call the server
+rawCsvText <- RCurl::postForm(
+  uri = uri, 
+  token = token, 
+  content ='record',
+  format = 'csv', 
+  type = 'flat', 
+  .opts = curlOptions(ssl.verifypeer=FALSE)
+)
+
+ds <- read.csv(text=rawCsvText,  stringsAsFactors=FALSE)
+ds[ds== ""] <- NA
+ds[ds== "NA"] <- NA
+
+# set working directory
+setwd("Anna/Data/Tumor")
+
+
+
+
+ds<- ds %>% mutate(screening_2___1= ifelse(screening_2___1==1, "Pancreatic cyst(s)", NA), 
+                   screening_2___2= ifelse(screening_2___2==1 , "Family History of Pancreatic Cancer", NA),
+                   screening_2___3= ifelse(screening_2___3==1 , "Fatty pancreas disease or insulin resistance", NA),
+                   screening_2___4= ifelse(screening_2___4==1 , "Personal History of occupational exposure", NA),
+                   screening_2___5= ifelse(screening_2___5==1 & !is.na(screening_other), screening_other, NA),
+                   screening_2___6= ifelse(screening_2___6==1 , "Chronic pancreatitis", NA),
+                   
+                   screening___1= ifelse(screening___1==1, "Pancreatic cyst(s)", NA), 
+                   screening___2= ifelse(screening___2==1 , "Family History of Pancreatic Cancer", NA),
+                   screening___3= ifelse(screening___3==1 , "Fatty pancreas disease or insulin resistance", NA),
+                   screening___4= ifelse(screening___4==1 , "Personal History of occupational exposure", NA),
+                   screening___5= ifelse(screening___5==1 & !is.na(screening_other), screening_other, NA),
+                   screening___6= ifelse(screening___6==1 , "Chronic pancreatitis", NA),
+                   
+                   screening_1= ifelse(!is.na(screening_2___1) & is.na(screening___1), screening_2___1, screening___1), 
+                   screening_2= ifelse(!is.na(screening_2___2) & is.na(screening___2), screening_2___2, screening___2),
+                   screening_3= ifelse(!is.na(screening_2___3) & is.na(screening___3), screening_2___3, screening___3),
+                   screening_4= ifelse(!is.na(screening_2___4) & is.na(screening___4), screening_2___4, screening___4),
+                   screening_5= ifelse(!is.na(screening_2___5) & is.na(screening___5), screening_2___5, screening___5),
+                   screening_6= ifelse(!is.na(screening_2___6) & is.na(screening___6), screening_2___6, screening___6),
+                   
+                   red_flag_imaging___1= ifelse(red_flag_imaging___1==1, "Cyst greater than 2 cm", NA),
+                   red_flag_imaging___2= ifelse(red_flag_imaging___2==1, "Mural nodule", NA),
+                   red_flag_imaging___3= ifelse(red_flag_imaging___3==1, "Main pancreatic duct dilatation greater or equal 4 mm", NA),
+                   
+                   
+                   red_flag_symptoms___1	= ifelse(red_flag_symptoms___1==1, "Jaundice", NA), 
+                   red_flag_symptoms___2	= ifelse(red_flag_symptoms___2==1, "Pancreatitis", NA), 
+                   red_flag_symptoms___3	= ifelse(red_flag_symptoms___3==1, "Unintentional weight loss", NA), 
+                   red_flag_symptoms___4	= ifelse(red_flag_symptoms___4==1, "Worsening diabetes", NA), 
+                   red_flag_symptoms___5	= ifelse(red_flag_symptoms___5==1, "New onset depression", NA), 
+                   
+                   red_flag_labs= ifelse(red_flag_labs==1, "Elevated CA 19-9 > 37 U/dL", "Normal CA 19-9"), 
+                   
+                   sex= ifelse(sex==1, "Male", ifelse(sex==2, "Female", NA)), 
+                   imaging= ifelse(imaging==2, "Yes", ifelse(imaging==1, "No", NA)))
+
+# Report keeping the people entered within 16 days. 
+rep<- ds %>%  filter((tumor_board_discuss==1 & (as.numeric(Sys.Date()-as.Date(date_entered))>=0 & as.numeric(Sys.Date()-as.Date(date_entered)) <= 16))|
+                       tumor_board_rem==1) %>% 
+  mutate(Presentation= gsub("NA; |; NA", "", paste(screening_1, screening_2, screening_3, screening_4, screening_5, screening_6, sep= "; ")), 
+         Clinical= gsub("NA; |; NA", "", paste(red_flag_symptoms___1, red_flag_symptoms___2, red_flag_symptoms___3, red_flag_symptoms___4, red_flag_symptoms___5, sep= "; ")),  
+         Imaging= gsub("NA; |; NA", "", paste(red_flag_imaging___1, red_flag_imaging___2, red_flag_imaging___3, sep= "; ")), 
+         mrn= as.character(mrn)) %>% 
+  rename(MRN= mrn, `Patients last name`= pt_lastname_cystboard, Age=age, Sex=sex, Clinician= clinician_cystboard, `Date entered`= date_entered, 
+         `Radiology referral`=imaging) %>% 
+  select(MRN, `Patients last name`, Age, Sex, Presentation, Clinical, Imaging, Clinician, `Date entered`, `Radiology referral`) 
+
+rad<- rep %>% filter(`Radiology referral`== "Yes")
+# rep %>% 
+#   flextable() %>% autofit()
+
+# Saving the report (weekly archived and an overwritten version)
+write.csv(rep, file="Weekly_reports/PIC_Tumor_board_report.csv", na="", row.names = FALSE)
+write.csv(rad, file="Weekly_reports/PIC_Tumor_board_report_radiology.csv", na="", row.names = FALSE)
+write.csv(rep, file=paste0("Weekly_reports/Archived/PIC_Tumor_board_report_", gsub("-", "", Sys.Date()), ".csv"), na="", row.names = FALSE)
